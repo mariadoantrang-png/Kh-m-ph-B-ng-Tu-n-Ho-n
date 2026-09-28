@@ -1,0 +1,1198 @@
+ <!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trò Chơi Tương Tác Nghiêng Đầu Trả Lời Trắc Nghiệm</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,600;0,700;0,800;0,900;1,600&display=swap" rel="stylesheet">
+  
+  <!-- MediaPipe Face Mesh & Camera Utils -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+  <style>
+    body {
+      font-family: 'Be Vietnam Pro', sans-serif;
+      user-select: none;
+    }
+    
+    /* Mirror video feed for natural user orientation */
+    .mirror-video {
+      transform: scaleX(-1);
+    }
+
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.05); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .animate-pulse-ring {
+      animation: pulse-ring 2s infinite ease-in-out;
+    }
+
+    @keyframes float-star {
+      0% { transform: translateY(0) rotate(0deg) scale(0.8); opacity: 1; }
+      100% { transform: translateY(-300px) rotate(360deg) scale(1.4); opacity: 0; }
+    }
+    
+    .star-fx {
+      position: absolute;
+      pointer-events: none;
+      animation: float-star 1.8s forwards cubic-bezier(0.22, 1, 0.36, 1);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen flex flex-col justify-between overflow-x-hidden relative">
+
+  <!-- Background Glow & Stars Canvas -->
+  <div class="fixed inset-0 pointer-events-none z-0">
+    <div class="absolute -top-32 left-1/4 w-96 h-96 bg-purple-600/20 rounded-full blur-3xl"></div>
+    <div class="absolute -top-32 right-1/4 w-96 h-96 bg-cyan-600/20 rounded-full blur-3xl"></div>
+    <div class="absolute bottom-10 left-1/2 -translate-x-1/2 w-[600px] h-64 bg-amber-500/10 rounded-full blur-3xl"></div>
+  </div>
+  <canvas id="starsCanvas" class="fixed inset-0 pointer-events-none z-40"></canvas>
+
+  <header class="relative z-10 w-full px-6 py-4 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-yellow-300 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/25 text-xl">
+        ⚗️
+      </div>
+      <div>
+        <h1 class="text-lg md:text-xl font-bold bg-gradient-to-r from-amber-300 via-yellow-200 to-white bg-clip-text text-transparent">
+          Bảng Tuần Hoàn AI Quiz
+        </h1>
+        <p class="text-xs text-slate-400">Nghiêng đầu Trái / Phải để chọn đáp án</p>
+      </div>
+    </div>
+
+    <!-- Controls & Status indicators -->
+    <div class="flex items-center gap-3">
+      <div id="cameraStatusBadge" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-300">
+        <span id="camDot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+        <span id="camText">Đang khởi tạo camera...</span>
+      </div>
+
+      <button id="toggleAudioBtn" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-amber-300 transition shadow">
+        <span id="audioIcon">🔊</span>
+        <span id="audioText">Bật Nhạc</span>
+      </button>
+
+      <button id="helpBtn" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-sm font-bold border border-slate-700 transition" title="Hướng dẫn">
+        ❓
+      </button>
+    </div>
+  </header>
+
+  <main class="relative z-10 flex-1 flex flex-col max-w-7xl w-full mx-auto p-4 md:p-6 gap-6">
+
+    <!-- Start / Splash Screen Overlay -->
+    <div id="startScreen" class="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-4">
+      <div class="max-w-xl w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 text-center shadow-2xl relative overflow-hidden">
+        <div class="absolute -top-20 -left-20 w-40 h-40 bg-amber-500/20 rounded-full blur-2xl"></div>
+        <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-tr from-amber-400 to-yellow-200 flex items-center justify-center text-4xl shadow-xl shadow-amber-500/30">
+          🎮
+        </div>
+        <h2 class="text-2xl md:text-3xl font-black text-white mb-3">Thử Thách Nghiêng Đầu Khám Phá Hóa Học</h2>
+        <p class="text-slate-300 text-sm md:text-base leading-relaxed mb-6">
+          Sử dụng camera và khuôn mặt thật của bạn để điều khiển trò chơi!
+        </p>
+
+        <div class="grid grid-cols-2 gap-4 text-left mb-6">
+          <div class="p-4 rounded-2xl bg-slate-800/80 border border-blue-500/30 flex items-center gap-3">
+            <span class="text-3xl">👈</span>
+            <div>
+              <p class="font-bold text-blue-300 text-sm">Nghiêng sang TRÁI</p>
+              <p class="text-xs text-slate-400">Chọn phương án A bên trái màn hình</p>
+            </div>
+          </div>
+          <div class="p-4 rounded-2xl bg-slate-800/80 border border-emerald-500/30 flex items-center gap-3">
+            <span class="text-3xl">👉</span>
+            <div>
+              <p class="font-bold text-emerald-300 text-sm">Nghiêng sang PHẢI</p>
+              <p class="text-xs text-slate-400">Chọn phương án B bên phải màn hình</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-amber-950/40 border border-amber-500/30 rounded-2xl p-4 text-xs text-amber-200/90 mb-6 flex items-start gap-3">
+          <span class="text-xl">💡</span>
+          <span class="text-left">Mỗi câu có 15 giây đếm ngược. Giữ nghiêng đầu khoảng 1 giây để xác nhận lựa chọn. Vui lòng cấp quyền truy cập Camera khi trình duyệt hỏi.</span>
+        </div>
+
+        <button id="startGameBtn" class="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-slate-950 font-black text-lg tracking-wide hover:shadow-lg hover:shadow-amber-500/30 hover:scale-[1.02] active:scale-[0.98] transition">
+          BẮT ĐẦU CHƠI NGAY 🚀
+        </button>
+      </div>
+    </div>
+
+    <!-- Top Quiz Status bar -->
+    <div class="flex flex-col md:flex-row items-center justify-between gap-4 bg-slate-900/70 border border-slate-800/80 rounded-2xl p-4 backdrop-blur-md">
+      <!-- Question index & score -->
+      <div class="flex items-center gap-6">
+        <div>
+          <span class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Tiến trình</span>
+          <div class="text-xl font-extrabold text-white flex items-center gap-1.5">
+            <span>Câu</span> <span id="currentQuestionNum" class="text-amber-400">1</span>/5
+          </div>
+        </div>
+        <div class="h-8 w-px bg-slate-800"></div>
+        <div>
+          <span class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Điểm số</span>
+          <div class="text-xl font-extrabold text-emerald-400 flex items-center gap-1">
+            <span id="scoreText">0</span> <span class="text-xs text-slate-400 font-normal">/ 5</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 15s Countdown Ring & Bar -->
+      <div class="flex items-center gap-4 w-full md:w-auto justify-end">
+        <div class="text-right">
+          <div class="text-xs font-semibold text-slate-400 uppercase">Thời gian còn lại</div>
+          <div class="text-2xl font-black font-mono transition-colors" id="timerText">15s</div>
+        </div>
+        <div class="relative w-14 h-14 flex items-center justify-center">
+          <svg class="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+            <path class="text-slate-800" stroke-width="3.5" stroke="currentColor" fill="none"
+              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+            <path id="timerCircle" class="text-amber-400 transition-all duration-300" stroke-width="3.5" stroke-dasharray="100, 100" stroke-linecap="round" stroke="currentColor" fill="none"
+              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+          </svg>
+          <span id="timerSmallIcon" class="absolute text-sm">⏳</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Question Content Box -->
+    <div class="bg-gradient-to-b from-slate-900/90 to-slate-900/60 border border-slate-800 rounded-3xl p-6 md:p-8 text-center shadow-xl relative overflow-hidden">
+      <div class="inline-block px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold tracking-wider uppercase mb-3">
+        Kiến thức Hóa học 10
+      </div>
+      <h2 id="questionContent" class="text-lg md:text-2xl font-extrabold text-white leading-relaxed max-w-4xl mx-auto">
+        Đang tải câu hỏi...
+      </h2>
+    </div>
+
+    <!-- Answer Options & Camera Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch flex-1">
+      
+      <!-- Option A (LEFT) -->
+      <div id="optionCardA" class="lg:col-span-4 rounded-3xl p-6 bg-slate-900/80 border-2 border-blue-500/30 hover:border-blue-400/60 transition-all duration-300 flex flex-col justify-between relative overflow-hidden group shadow-lg">
+        <!-- Tilt Progress Overlay -->
+        <div id="fillOverlayA" class="absolute inset-0 bg-blue-600/30 w-0 transition-[width] duration-100 ease-linear pointer-events-none"></div>
+
+        <div class="relative z-10 flex items-center justify-between mb-4">
+          <div class="w-12 h-12 rounded-2xl bg-blue-500/20 border border-blue-400/40 flex items-center justify-center font-black text-2xl text-blue-300 shadow">
+            A
+          </div>
+          <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-950/60 border border-blue-500/30 text-blue-300 text-xs font-bold">
+            <span>👈</span> Nghiêng Trái
+          </div>
+        </div>
+
+        <div class="relative z-10 my-auto py-4">
+          <p id="optionTextA" class="text-xl md:text-2xl font-bold text-slate-100 group-hover:text-blue-200 transition">
+            Đang tải lựa chọn A...
+          </p>
+        </div>
+
+        <!-- Lock-in Progress indicator -->
+        <div class="relative z-10 pt-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+          <span id="statusA">Nghiêng đầu sang trái để chọn</span>
+          <span id="percentA" class="font-mono font-bold text-blue-400">0%</span>
+        </div>
+      </div>
+
+      <!-- Center Webcam Feed & Face Landmark Canvas -->
+      <div class="lg:col-span-4 flex flex-col items-center justify-center bg-slate-900/90 border border-slate-800 rounded-3xl p-4 shadow-xl relative overflow-hidden min-h-[300px]">
+        <!-- Video Container -->
+        <div class="relative w-full aspect-[4/3] max-w-sm rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-inner flex items-center justify-center">
+          <!-- Real Webcam Video Element -->
+          <video id="webcamVideo" class="absolute inset-0 w-full h-full object-cover mirror-video" autoplay playsinline muted></video>
+          <!-- Landmark Overlay Canvas -->
+          <canvas id="faceCanvas" class="absolute inset-0 w-full h-full object-cover mirror-video pointer-events-none"></canvas>
+
+          <!-- Head Tilt Visual Compass / Guide Line -->
+          <div class="absolute inset-x-0 top-1/2 -translate-y-1/2 flex items-center justify-between px-4 pointer-events-none opacity-40">
+            <span class="text-2xl">◀</span>
+            <div class="w-16 h-0.5 bg-slate-400/50 dashed"></div>
+            <span class="text-2xl">▶</span>
+          </div>
+
+          <!-- Live Tilt Angle Badge -->
+          <div class="absolute bottom-2 inset-x-2 flex items-center justify-between pointer-events-none">
+            <span id="tiltDirectionBadge" class="px-2.5 py-1 rounded-full bg-slate-950/80 backdrop-blur-md text-[11px] font-bold text-slate-300 border border-slate-700">
+              Chính diện (0°)
+            </span>
+            <span id="faceTrackingBadge" class="px-2.5 py-1 rounded-full bg-emerald-950/80 text-[11px] font-bold text-emerald-400 border border-emerald-800">
+              Đã nhận diện mặt
+            </span>
+          </div>
+        </div>
+
+        <!-- Real-time Tilt Guidance Helper Bar -->
+        <div class="w-full max-w-sm mt-3 px-1">
+          <div class="flex justify-between text-[11px] font-semibold text-slate-400 mb-1">
+            <span class="text-blue-400">◄ Nghiêng TRÁI (A)</span>
+            <span id="angleValue">0°</span>
+            <span class="text-emerald-400">Nghiêng PHẢI (B) ►</span>
+          </div>
+          <!-- Gauge Slider indicator -->
+          <div class="w-full h-2.5 bg-slate-800 rounded-full relative overflow-hidden flex items-center">
+            <div class="absolute left-1/2 -translate-x-1/2 w-1 h-full bg-slate-600 z-10"></div>
+            <div id="tiltIndicatorBar" class="absolute h-full bg-amber-400 transition-all duration-75 rounded-full" style="left: 50%; width: 0%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Option B (RIGHT) -->
+      <div id="optionCardB" class="lg:col-span-4 rounded-3xl p-6 bg-slate-900/80 border-2 border-emerald-500/30 hover:border-emerald-400/60 transition-all duration-300 flex flex-col justify-between relative overflow-hidden group shadow-lg">
+        <!-- Tilt Progress Overlay -->
+        <div id="fillOverlayB" class="absolute inset-0 bg-emerald-600/30 w-0 transition-[width] duration-100 ease-linear pointer-events-none"></div>
+
+        <div class="relative z-10 flex items-center justify-between mb-4">
+          <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-emerald-300 text-xs font-bold">
+            Nghiêng Phải <span>👉</span>
+          </div>
+          <div class="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center font-black text-2xl text-emerald-300 shadow">
+            B
+          </div>
+        </div>
+
+        <div class="relative z-10 my-auto py-4">
+          <p id="optionTextB" class="text-xl md:text-2xl font-bold text-slate-100 group-hover:text-emerald-200 transition">
+            Đang tải lựa chọn B...
+          </p>
+        </div>
+
+        <!-- Lock-in Progress indicator -->
+        <div class="relative z-10 pt-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+          <span id="statusB">Nghiêng đầu sang phải để chọn</span>
+          <span id="percentB" class="font-mono font-bold text-emerald-400">0%</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Feedback Announcement Overlay -->
+    <div id="feedbackModal" class="fixed inset-0 z-50 pointer-events-none flex items-center justify-center p-4 transition-all duration-300 opacity-0 scale-95">
+      <div id="feedbackCard" class="max-w-xl w-full rounded-3xl p-8 text-center shadow-2xl border-4 backdrop-blur-2xl transform transition-transform">
+        <div id="feedbackIcon" class="text-6xl mb-4 animate-bounce">⭐</div>
+        <h3 id="feedbackTitle" class="text-2xl md:text-3xl font-black mb-2 leading-snug">
+          <!-- Text inserted via JS -->
+        </h3>
+        <p id="feedbackDesc" class="text-sm md:text-base font-semibold opacity-90 mb-4">
+          <!-- Explanation / Selected note -->
+        </p>
+        <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-black/40 text-xs font-bold tracking-wider uppercase">
+          <span class="w-2 h-2 rounded-full bg-white animate-ping"></span>
+          Đang chuyển sang câu kế tiếp...
+        </div>
+      </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameOverScreen" class="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-2xl flex items-center justify-center p-4 hidden">
+      <div class="max-w-lg w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center shadow-2xl relative overflow-hidden">
+        <div class="text-7xl mb-4">🏆</div>
+        <h2 class="text-3xl font-black text-white mb-2">Hoàn Thành Thử Thách!</h2>
+        <p class="text-slate-400 text-sm mb-6">Bạn đã hoàn thành 5 câu hỏi bảng tuần hoàn!</p>
+
+        <div class="bg-slate-800/80 rounded-2xl p-6 border border-slate-700 mb-6">
+          <div class="text-xs uppercase font-bold text-slate-400 mb-1">Kết quả chung cuộc</div>
+          <div class="text-5xl font-black text-amber-400 mb-2">
+            <span id="finalScore">0</span> / 5
+          </div>
+          <p id="finalFeedbackText" class="text-sm font-semibold text-slate-200">
+            Tuyệt vời! Bạn nắm rất vững kiến thức hóa học.
+          </p>
+        </div>
+
+        <button id="restartGameBtn" class="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-lg hover:shadow-lg hover:shadow-amber-500/25 active:scale-95 transition">
+          CHƠI LẠI TỪ ĐẦU 🔄
+        </button>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="relative z-10 py-3 px-6 text-center text-xs text-slate-500 border-t border-slate-900 bg-slate-950/80">
+    Hệ thống nhận diện cử động đầu thông qua MediaPipe Face Mesh AI • Âm thanh tạo lập trực tiếp bằng Web Audio API
+  </footer>
+
+  <script>
+    /*
+     * Upbeat Procedural Background Music & Sound Effects Generator
+     * Using pure Web Audio API without external broken links.
+     */
+    class QuizAudioEngine {
+      constructor() {
+        this.ctx = null;
+        this.bgmPlaying = false;
+        this.tempo = 124;
+        this.nextNoteTime = 0;
+        this.step = 0;
+        this.timerID = null;
+        this.masterGain = null;
+        this.musicGain = null;
+        this.sfxGain = null;
+      }
+
+      init() {
+        if (!this.ctx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioContextClass();
+
+          this.masterGain = this.ctx.createGain();
+          this.masterGain.gain.setValueAtTime(0.7, this.ctx.currentTime);
+          this.masterGain.connect(this.ctx.destination);
+
+          this.musicGain = this.ctx.createGain();
+          this.musicGain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+          this.musicGain.connect(this.masterGain);
+
+          this.sfxGain = this.ctx.createGain();
+          this.sfxGain.gain.setValueAtTime(0.8, this.ctx.currentTime);
+          this.sfxGain.connect(this.masterGain);
+        }
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+
+      startBGM() {
+        this.init();
+        if (this.bgmPlaying) return;
+        this.bgmPlaying = true;
+        this.step = 0;
+        this.nextNoteTime = this.ctx.currentTime + 0.1;
+        this.scheduler();
+      }
+
+      stopBGM() {
+        this.bgmPlaying = false;
+        if (this.timerID) {
+          clearTimeout(this.timerID);
+          this.timerID = null;
+        }
+      }
+
+      scheduler() {
+        if (!this.bgmPlaying) return;
+        while (this.nextNoteTime < this.ctx.currentTime + 0.15) {
+          this.playStep(this.step, this.nextNoteTime);
+          const secondsPerBeat = 60.0 / this.tempo;
+          this.nextNoteTime += 0.25 * secondsPerBeat; // 16th notes
+          this.step = (this.step + 1) % 32;
+        }
+        this.timerID = setTimeout(() => this.scheduler(), 45);
+      }
+
+      playStep(step, time) {
+        // Melodic notes for joyful, upbeat game vibe (C Major / A Minor pentatonic)
+        const melodyPattern = [
+          523.25, 0, 587.33, 659.25, 0, 783.99, 659.25, 0,
+          880.00, 0, 783.99, 0, 659.25, 587.33, 523.25, 0,
+          587.33, 0, 659.25, 783.99, 0, 880.00, 1046.50, 0,
+          880.00, 783.99, 659.25, 0, 587.33, 0, 523.25, 0
+        ];
+
+        // Bassline
+        const bassPattern = [
+          130.81, 0, 130.81, 0, 174.61, 0, 174.61, 0,
+          196.00, 0, 196.00, 0, 146.83, 0, 146.83, 0,
+          130.81, 0, 130.81, 0, 174.61, 0, 174.61, 0,
+          196.00, 0, 196.00, 0, 130.81, 0, 196.00, 0
+        ];
+
+        const note = melodyPattern[step];
+        if (note > 0) {
+          this.playSynthNote(note, time, 0.1, 'triangle', 0.25);
+        }
+
+        const bass = bassPattern[step];
+        if (bass > 0) {
+          this.playSynthNote(bass, time, 0.16, 'sine', 0.35);
+        }
+
+        // Funky drum clicks
+        if (step % 4 === 0) {
+          this.playKick(time);
+        }
+        if (step % 8 === 4) {
+          this.playSnare(time);
+        }
+        if (step % 2 === 0) {
+          this.playHiHat(time);
+        }
+      }
+
+      playSynthNote(freq, time, dur, type = 'sine', vol = 0.3) {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, time);
+
+        gain.gain.setValueAtTime(vol, time);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+
+        osc.connect(gain);
+        gain.connect(this.musicGain);
+
+        osc.start(time);
+        osc.stop(time + dur + 0.05);
+      }
+
+      playKick(time) {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.frequency.setValueAtTime(150, time);
+        osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.12);
+
+        gain.gain.setValueAtTime(0.4, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
+
+        osc.connect(gain);
+        gain.connect(this.musicGain);
+        osc.start(time);
+        osc.stop(time + 0.15);
+      }
+
+      playSnare(time) {
+        if (!this.ctx) return;
+        // Simple noise burst for snare
+        const bufferSize = this.ctx.sampleRate * 0.08;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const output = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          output[i] = Math.random() * 2 - 1;
+        }
+        const whiteNoise = this.ctx.createBufferSource();
+        whiteNoise.buffer = buffer;
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.setValueAtTime(1000, time);
+
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.2, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+
+        whiteNoise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.musicGain);
+
+        whiteNoise.start(time);
+        whiteNoise.stop(time + 0.09);
+      }
+
+      playHiHat(time) {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(8000, time);
+        gain.gain.setValueAtTime(0.05, time);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.03);
+        osc.connect(gain);
+        gain.connect(this.musicGain);
+        osc.start(time);
+        osc.stop(time + 0.04);
+      }
+
+      // SFX for correct answer: Sparkly Arpeggio
+      playCorrectSFX() {
+        this.init();
+        const now = this.ctx.currentTime;
+        const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+        notes.forEach((freq, idx) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+          gain.gain.setValueAtTime(0.5, now + idx * 0.08);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.35);
+
+          osc.connect(gain);
+          gain.connect(this.sfxGain);
+
+          osc.start(now + idx * 0.08);
+          osc.stop(now + idx * 0.08 + 0.4);
+        });
+      }
+
+      // SFX for wrong answer: Gentle low buzzer
+      playWrongSFX() {
+        this.init();
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.linearRampToValueAtTime(110, now + 0.4);
+
+        gain.gain.setValueAtTime(0.4, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+
+        osc.start(now);
+        osc.stop(now + 0.5);
+      }
+
+      playCountdownTick() {
+        this.init();
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, now);
+
+        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 0.06);
+      }
+    }
+
+    const soundEngine = new QuizAudioEngine();
+  </script>
+
+  <script>
+    // 5 Questions as specified by the user
+    const QUIZ_DATA = [
+      {
+        question: "Nhà khoa học có công xây dựng bảng tuần hoàn các nguyên tố hóa học và dự đoán được tính chất của một số nguyên tố chưa được phát hiện là",
+        optionA: "J. Dalton.",
+        optionB: "D. I. Mendeleev.",
+        answer: "B"
+      },
+      {
+        question: "Khi xây dựng bảng tuần hoàn, Mendeleev chủ yếu sắp xếp các nguyên tố theo chiều tăng dần của",
+        optionA: "số hiệu nguyên tử.",
+        optionB: "nguyên tử khối.",
+        answer: "B"
+      },
+      {
+        question: "Trong bảng tuần hoàn hiện đại, các nguyên tố hóa học được sắp xếp theo chiều tăng dần của",
+        optionA: "số hiệu nguyên tử.",
+        optionB: "nguyên tử khối.",
+        answer: "A"
+      },
+      {
+        question: "Các nguyên tố được xếp trong cùng một cột của bảng tuần hoàn khi nguyên tử của chúng có cùng",
+        optionA: "Số lớp electron",
+        optionB: "Số electron hoá trị",
+        answer: "B"
+      },
+      {
+        question: "Hai nguyên tố được xếp trong cùng một chu kì của bảng tuần hoàn khi nguyên tử của chúng có cùng",
+        optionA: "số lớp electron.",
+        optionB: "số electron.",
+        answer: "A"
+      }
+    ];
+
+    // Game state variables
+    let currentQuestionIndex = 0;
+    let score = 0;
+    let timeLeft = 15;
+    let timerInterval = null;
+    let isQuestionActive = false;
+    let isLockedIn = false;
+
+    // Head tilt detection calibration
+    let currentTiltAngle = 0; // Negative = Tilt Left (towards A), Positive = Tilt Right (towards B)
+    const TILT_THRESHOLD = 11; // Degrees required to consider a tilt
+    const HOLD_TIME_REQUIRED = 900; // ms to confirm selection
+    let tiltHoldStartTime = null;
+    let currentHoldingChoice = null; // 'A' or 'B' or null
+
+    // DOM Elements
+    const questionContentEl = document.getElementById('questionContent');
+    const optionTextAEl = document.getElementById('optionTextA');
+    const optionTextBEl = document.getElementById('optionTextB');
+    const optionCardA = document.getElementById('optionCardA');
+    const optionCardB = document.getElementById('optionCardB');
+    const fillOverlayA = document.getElementById('fillOverlayA');
+    const fillOverlayB = document.getElementById('fillOverlayB');
+    const percentA = document.getElementById('percentA');
+    const percentB = document.getElementById('percentB');
+    const statusA = document.getElementById('statusA');
+    const statusB = document.getElementById('statusB');
+
+    const timerTextEl = document.getElementById('timerText');
+    const timerCircleEl = document.getElementById('timerCircle');
+    const currentQuestionNumEl = document.getElementById('currentQuestionNum');
+    const scoreTextEl = document.getElementById('scoreText');
+
+    const feedbackModal = document.getElementById('feedbackModal');
+    const feedbackCard = document.getElementById('feedbackCard');
+    const feedbackTitle = document.getElementById('feedbackTitle');
+    const feedbackDesc = document.getElementById('feedbackDesc');
+    const feedbackIcon = document.getElementById('feedbackIcon');
+
+    const gameOverScreen = document.getElementById('gameOverScreen');
+    const finalScoreEl = document.getElementById('finalScore');
+    const finalFeedbackTextEl = document.getElementById('finalFeedbackText');
+
+    const startScreen = document.getElementById('startScreen');
+    const startGameBtn = document.getElementById('startGameBtn');
+    const restartGameBtn = document.getElementById('restartGameBtn');
+    const toggleAudioBtn = document.getElementById('toggleAudioBtn');
+    const audioIcon = document.getElementById('audioIcon');
+    const audioText = document.getElementById('audioText');
+
+    const tiltIndicatorBar = document.getElementById('tiltIndicatorBar');
+    const tiltDirectionBadge = document.getElementById('tiltDirectionBadge');
+    const angleValue = document.getElementById('angleValue');
+    const faceTrackingBadge = document.getElementById('faceTrackingBadge');
+  </script>
+
+  <script>
+    /*
+     * Golden Stars Confetti & Particles System
+     */
+    const starsCanvas = document.getElementById('starsCanvas');
+    const sCtx = starsCanvas.getContext('2d');
+    let particles = [];
+
+    function resizeStarCanvas() {
+      starsCanvas.width = window.innerWidth;
+      starsCanvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeStarCanvas);
+    resizeStarCanvas();
+
+    class GoldenStar {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.size = Math.random() * 22 + 14;
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 8 + 4;
+        this.vx = Math.cos(angle) * speed;
+        this.vy = Math.sin(angle) * speed - 3;
+        this.gravity = 0.22;
+        this.rotation = Math.random() * Math.PI * 2;
+        this.rotSpeed = (Math.random() - 0.5) * 0.15;
+        this.alpha = 1;
+        this.color = ['#f59e0b', '#fbbf24', '#fef08a', '#ffffff', '#eab308'][Math.floor(Math.random() * 5)];
+      }
+
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += this.gravity;
+        this.rotation += this.rotSpeed;
+        this.alpha -= 0.012;
+      }
+
+      draw(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rotation);
+        ctx.globalAlpha = Math.max(0, this.alpha);
+        ctx.fillStyle = this.color;
+        ctx.shadowColor = '#f59e0b';
+        ctx.shadowBlur = 10;
+
+        // Draw 5-pointed star
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+          ctx.lineTo(Math.cos((18 + i * 72) * 0.0174533) * this.size, -Math.sin((18 + i * 72) * 0.0174533) * this.size);
+          ctx.lineTo(Math.cos((54 + i * 72) * 0.0174533) * (this.size / 2), -Math.sin((54 + i * 72) * 0.0174533) * (this.size / 2));
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function triggerGoldenStarsExplosion() {
+      const centerX = window.innerWidth / 2;
+      const centerY = window.innerHeight * 0.45;
+      for (let i = 0; i < 110; i++) {
+        particles.push(new GoldenStar(centerX + (Math.random() - 0.5) * 200, centerY + (Math.random() - 0.5) * 120));
+      }
+    }
+
+    function renderStarParticles() {
+      sCtx.clearRect(0, 0, starsCanvas.width, starsCanvas.height);
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.update();
+        p.draw(sCtx);
+        if (p.alpha <= 0) {
+          particles.splice(i, 1);
+        }
+      }
+      requestAnimationFrame(renderStarParticles);
+    }
+    renderStarParticles();
+  </script>
+
+  <script>
+    const webcamVideo = document.getElementById('webcamVideo');
+    const faceCanvas = document.getElementById('faceCanvas');
+    const fCtx = faceCanvas.getContext('2d');
+    const camDot = document.getElementById('camDot');
+    const camText = document.getElementById('camText');
+
+    let faceMeshInstance = null;
+    let cameraInstance = null;
+    let faceMeshLoaded = false;
+
+    async function initFaceMesh() {
+      try {
+        camText.innerText = "Đang tải mô hình khuôn mặt...";
+        faceMeshInstance = new FaceMesh({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+        });
+
+        faceMeshInstance.setOptions({
+          maxNumFaces: 1,
+          refineLandmarks: false,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5
+        });
+
+        faceMeshInstance.onResults(onFaceMeshResults);
+
+        // Setup camera using MediaPipe CameraUtils
+        cameraInstance = new Camera(webcamVideo, {
+          onFrame: async () => {
+            if (webcamVideo.videoWidth > 0 && webcamVideo.videoHeight > 0) {
+              await faceMeshInstance.send({ image: webcamVideo });
+            }
+          },
+          width: 640,
+          height: 480
+        });
+
+        await cameraInstance.start();
+        faceMeshLoaded = true;
+        camDot.classList.remove('bg-amber-400');
+        camDot.classList.add('bg-emerald-400');
+        camText.innerText = "Camera sẵn sàng";
+      } catch (err) {
+        console.error("Camera / FaceMesh error:", err);
+        camDot.classList.remove('bg-amber-400');
+        camDot.classList.add('bg-rose-500');
+        camText.innerText = "Lỗi Camera / Chế độ mô phỏng";
+        fallbackToManualMouseTilt();
+      }
+    }
+
+    // Process face landmarks to determine Head Tilt Angle
+    function onFaceMeshResults(results) {
+      // Sync canvas dimensions
+      if (faceCanvas.width !== webcamVideo.videoWidth || faceCanvas.height !== webcamVideo.videoHeight) {
+        faceCanvas.width = webcamVideo.videoWidth;
+        faceCanvas.height = webcamVideo.videoHeight;
+      }
+
+      fCtx.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
+
+      if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+        faceTrackingBadge.innerText = "Không thấy mặt";
+        faceTrackingBadge.className = "px-2.5 py-1 rounded-full bg-rose-950/80 text-[11px] font-bold text-rose-400 border border-rose-800";
+        currentTiltAngle = 0;
+        updateTiltUI(0);
+        return;
+      }
+
+      faceTrackingBadge.innerText = "Đang nhận diện mặt";
+      faceTrackingBadge.className = "px-2.5 py-1 rounded-full bg-emerald-950/80 text-[11px] font-bold text-emerald-400 border border-emerald-800";
+
+      const landmarks = results.multiFaceLandmarks[0];
+
+      // Key landmarks for tilt angle:
+      // Landmark 33: Outer corner of person's right eye (appears on left in unmirrored coordinates)
+      // Landmark 263: Outer corner of person's left eye (appears on right in unmirrored coordinates)
+      // Forehead: 10, Chin: 152
+      const leftEyeCorner = landmarks[33];
+      const rightEyeCorner = landmarks[263];
+      const noseTip = landmarks[1];
+
+      const p1 = { x: leftEyeCorner.x * faceCanvas.width, y: leftEyeCorner.y * faceCanvas.height };
+      const p2 = { x: rightEyeCorner.x * faceCanvas.width, y: rightEyeCorner.y * faceCanvas.height };
+
+      // Calculate tilt angle in degrees
+      // Note: Video is mirrored with scaleX(-1).
+      // In the mirrored view on user's screen:
+      // When the user tilts their head towards their physical LEFT (Option A on the left of screen):
+      // The person's left side goes down, right side goes up.
+      const deltaX = p2.x - p1.x;
+      const deltaY = p2.y - p1.y;
+      const rawAngle = Math.atan2(deltaY, deltaX) * (180 / Math.PI);
+
+      // In mirrored screen coordinate space:
+      // Tilting to screen LEFT (Option A) yields negative tilt angle.
+      // Tilting to screen RIGHT (Option B) yields positive tilt angle.
+      currentTiltAngle = -rawAngle;
+
+      // Draw subtle guiding face landmarks on canvas
+      fCtx.save();
+      fCtx.strokeStyle = 'rgba(251, 191, 36, 0.4)';
+      fCtx.lineWidth = 2;
+      fCtx.beginPath();
+      fCtx.moveTo(p1.x, p1.y);
+      fCtx.lineTo(p2.x, p2.y);
+      fCtx.stroke();
+
+      // Nose point
+      fCtx.fillStyle = '#38bdf8';
+      fCtx.beginPath();
+      fCtx.arc(noseTip.x * faceCanvas.width, noseTip.y * faceCanvas.height, 4, 0, Math.PI * 2);
+      fCtx.fill();
+      fCtx.restore();
+
+      updateTiltUI(currentTiltAngle);
+      evaluateAnswerSelection(currentTiltAngle);
+    }
+
+    // Fallback simulation: If camera is unavailable, allow tilting via mouse movement or arrow keys
+    function fallbackToManualMouseTilt() {
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowLeft') {
+          currentTiltAngle = -18;
+          updateTiltUI(currentTiltAngle);
+          evaluateAnswerSelection(currentTiltAngle);
+        } else if (e.key === 'ArrowRight') {
+          currentTiltAngle = 18;
+          updateTiltUI(currentTiltAngle);
+          evaluateAnswerSelection(currentTiltAngle);
+        }
+      });
+      document.addEventListener('keyup', () => {
+        currentTiltAngle = 0;
+        updateTiltUI(0);
+        evaluateAnswerSelection(0);
+      });
+    }
+
+    // Update real-time tilt gauge UI
+    function updateTiltUI(angle) {
+      const clampedAngle = Math.max(-30, Math.min(30, angle));
+      angleValue.innerText = `${Math.round(angle)}°`;
+
+      if (clampedAngle < -TILT_THRESHOLD) {
+        // Tilted Left (Option A)
+        tiltDirectionBadge.innerText = `Nghiêng TRÁI (${Math.abs(Math.round(angle))}°)`;
+        tiltDirectionBadge.className = "px-2.5 py-1 rounded-full bg-blue-950/80 text-[11px] font-bold text-blue-300 border border-blue-700";
+
+        const widthPct = (Math.abs(clampedAngle) / 30) * 50;
+        tiltIndicatorBar.style.left = `${50 - widthPct}%`;
+        tiltIndicatorBar.style.width = `${widthPct}%`;
+        tiltIndicatorBar.className = "absolute h-full bg-blue-400 transition-all duration-75 rounded-full";
+      } else if (clampedAngle > TILT_THRESHOLD) {
+        // Tilted Right (Option B)
+        tiltDirectionBadge.innerText = `Nghiêng PHẢI (${Math.round(angle)}°)`;
+        tiltDirectionBadge.className = "px-2.5 py-1 rounded-full bg-emerald-950/80 text-[11px] font-bold text-emerald-300 border border-emerald-700";
+
+        const widthPct = (clampedAngle / 30) * 50;
+        tiltIndicatorBar.style.left = "50%";
+        tiltIndicatorBar.style.width = `${widthPct}%`;
+        tiltIndicatorBar.className = "absolute h-full bg-emerald-400 transition-all duration-75 rounded-full";
+      } else {
+        // Center Neutral
+        tiltDirectionBadge.innerText = `Chính diện (${Math.round(angle)}°)`;
+        tiltDirectionBadge.className = "px-2.5 py-1 rounded-full bg-slate-950/80 text-[11px] font-bold text-slate-300 border border-slate-700";
+        tiltIndicatorBar.style.width = "0%";
+      }
+    }
+  </script>
+
+  <script>
+    // Evaluate tilt angle and handle progress filling
+    function evaluateAnswerSelection(angle) {
+      if (!isQuestionActive || isLockedIn) return;
+
+      const now = Date.now();
+
+      if (angle < -TILT_THRESHOLD) {
+        // Leaning towards A (LEFT)
+        if (currentHoldingChoice !== 'A') {
+          currentHoldingChoice = 'A';
+          tiltHoldStartTime = now;
+        }
+
+        const elapsed = now - tiltHoldStartTime;
+        const progress = Math.min(100, Math.round((elapsed / HOLD_TIME_REQUIRED) * 100));
+
+        fillOverlayA.style.width = `${progress}%`;
+        fillOverlayB.style.width = `0%`;
+        percentA.innerText = `${progress}%`;
+        percentB.innerText = `0%`;
+        statusA.innerText = `Đang giữ: ${progress}%...`;
+        statusB.innerText = `Nghiêng đầu sang phải để chọn`;
+
+        optionCardA.classList.add('border-blue-400', 'scale-[1.02]', 'bg-blue-950/40');
+        optionCardB.classList.remove('border-emerald-400', 'scale-[1.02]', 'bg-emerald-950/40');
+
+        if (elapsed >= HOLD_TIME_REQUIRED) {
+          confirmSelection('A');
+        }
+      } else if (angle > TILT_THRESHOLD) {
+        // Leaning towards B (RIGHT)
+        if (currentHoldingChoice !== 'B') {
+          currentHoldingChoice = 'B';
+          tiltHoldStartTime = now;
+        }
+
+        const elapsed = now - tiltHoldStartTime;
+        const progress = Math.min(100, Math.round((elapsed / HOLD_TIME_REQUIRED) * 100));
+
+        fillOverlayB.style.width = `${progress}%`;
+        fillOverlayA.style.width = `0%`;
+        percentB.innerText = `${progress}%`;
+        percentA.innerText = `0%`;
+        statusB.innerText = `Đang giữ: ${progress}%...`;
+        statusA.innerText = `Nghiêng đầu sang trái để chọn`;
+
+        optionCardB.classList.add('border-emerald-400', 'scale-[1.02]', 'bg-emerald-950/40');
+        optionCardA.classList.remove('border-blue-400', 'scale-[1.02]', 'bg-blue-950/40');
+
+        if (elapsed >= HOLD_TIME_REQUIRED) {
+          confirmSelection('B');
+        }
+      } else {
+        // Neutral center position - Reset progress
+        currentHoldingChoice = null;
+        tiltHoldStartTime = null;
+        fillOverlayA.style.width = `0%`;
+        fillOverlayB.style.width = `0%`;
+        percentA.innerText = `0%`;
+        percentB.innerText = `0%`;
+        statusA.innerText = `Nghiêng đầu sang trái để chọn`;
+        statusB.innerText = `Nghiêng đầu sang phải để chọn`;
+
+        optionCardA.classList.remove('border-blue-400', 'scale-[1.02]', 'bg-blue-950/40');
+        optionCardB.classList.remove('border-emerald-400', 'scale-[1.02]', 'bg-emerald-950/40');
+      }
+    }
+
+    // Start 15-second countdown timer for current question
+    function startTimer() {
+      clearInterval(timerInterval);
+      timeLeft = 15;
+      updateTimerDisplay();
+
+      timerInterval = setInterval(() => {
+        if (!isQuestionActive || isLockedIn) return;
+        timeLeft--;
+        updateTimerDisplay();
+
+        if (timeLeft <= 5 && timeLeft > 0) {
+          soundEngine.playCountdownTick();
+        }
+
+        if (timeLeft <= 0) {
+          clearInterval(timerInterval);
+          handleTimeOut();
+        }
+      }, 1000);
+    }
+
+    function updateTimerDisplay() {
+      timerTextEl.innerText = `${timeLeft}s`;
+      const pct = (timeLeft / 15) * 100;
+      timerCircleEl.setAttribute('stroke-dasharray', `${pct}, 100`);
+
+      if (timeLeft <= 5) {
+        timerTextEl.className = "text-2xl font-black font-mono text-rose-500 animate-pulse";
+        timerCircleEl.setAttribute('class', 'text-rose-500 transition-all duration-300');
+      } else {
+        timerTextEl.className = "text-2xl font-black font-mono text-amber-400";
+        timerCircleEl.setAttribute('class', 'text-amber-400 transition-all duration-300');
+      }
+    }
+
+    // Load question into view
+    function loadQuestion(index) {
+      if (index >= QUIZ_DATA.length) {
+        finishGame();
+        return;
+      }
+
+      isLockedIn = false;
+      isQuestionActive = true;
+      currentHoldingChoice = null;
+      tiltHoldStartTime = null;
+
+      const q = QUIZ_DATA[index];
+      currentQuestionNumEl.innerText = index + 1;
+      questionContentEl.innerText = `Câu ${index + 1}. ${q.question}`;
+      optionTextAEl.innerText = `A. ${q.optionA}`;
+      optionTextBEl.innerText = `B. ${q.optionB}`;
+
+      // Reset card visual state
+      fillOverlayA.style.width = '0%';
+      fillOverlayB.style.width = '0%';
+      percentA.innerText = '0%';
+      percentB.innerText = '0%';
+      statusA.innerText = 'Nghiêng đầu sang trái để chọn';
+      statusB.innerText = 'Nghiêng đầu sang phải để chọn';
+      optionCardA.className = "lg:col-span-4 rounded-3xl p-6 bg-slate-900/80 border-2 border-blue-500/30 hover:border-blue-400/60 transition-all duration-300 flex flex-col justify-between relative overflow-hidden group shadow-lg";
+      optionCardB.className = "lg:col-span-4 rounded-3xl p-6 bg-slate-900/80 border-2 border-emerald-500/30 hover:border-emerald-400/60 transition-all duration-300 flex flex-col justify-between relative overflow-hidden group shadow-lg";
+
+      startTimer();
+    }
+
+    // Confirm selection once tilt hold time reached
+    function confirmSelection(userChoice) {
+      if (isLockedIn) return;
+      isLockedIn = true;
+      isQuestionActive = false;
+      clearInterval(timerInterval);
+
+      const q = QUIZ_DATA[currentQuestionIndex];
+      const isCorrect = (userChoice === q.answer);
+
+      if (isCorrect) {
+        score++;
+        scoreTextEl.innerText = score;
+        showFeedback(true, userChoice);
+      } else {
+        showFeedback(false, userChoice);
+      }
+    }
+
+    function handleTimeOut() {
+      if (isLockedIn) return;
+      isLockedIn = true;
+      isQuestionActive = false;
+      showFeedback(false, null, true);
+    }
+
+    // Display feedback message as strictly requested by user prompt
+    function showFeedback(isCorrect, selectedOption, isTimeout = false) {
+      if (isCorrect) {
+        // Requirements: "Xuất hiện dòng chữ Xin chúc mừng bạn câu trả lời chính xác, kèm theo nhiều ngôi sao màu vàng xuất hiện"
+        feedbackTitle.innerText = "Xin chúc mừng bạn câu trả lời chính xác";
+        feedbackTitle.className = "text-2xl md:text-3xl font-black mb-2 text-yellow-300 leading-snug drop-shadow-md";
+        feedbackDesc.innerText = `Bạn đã chọn phương án ${selectedOption} chuẩn xác!`;
+        feedbackIcon.innerText = "⭐ ⭐ ⭐";
+        feedbackCard.className = "max-w-xl w-full rounded-3xl p-8 text-center shadow-2xl border-4 border-yellow-400 bg-slate-900/95 backdrop-blur-2xl";
+        
+        soundEngine.playCorrectSFX();
+        triggerGoldenStarsExplosion();
+      } else {
+        // Requirements: "Xuất hiện dòng chữ Rất tiếc câu trả lời chưa đúng"
+        feedbackTitle.innerText = "Rất tiếc câu trả lời chưa đúng";
+        feedbackTitle.className = "text-2xl md:text-3xl font-black mb-2 text-rose-400 leading-snug drop-shadow-md";
+        const correctOpt = QUIZ_DATA[currentQuestionIndex].answer;
+        feedbackDesc.innerText = isTimeout ? "Đã hết thời gian 15 giây!" : `Phương án đúng là: ${correctOpt}`;
+        feedbackIcon.innerText = "❌";
+        feedbackCard.className = "max-w-xl w-full rounded-3xl p-8 text-center shadow-2xl border-4 border-rose-500/80 bg-slate-900/95 backdrop-blur-2xl";
+        
+        soundEngine.playWrongSFX();
+      }
+
+      feedbackModal.classList.remove('opacity-0', 'scale-95', 'pointer-events-none');
+      feedbackModal.classList.add('opacity-100', 'scale-100');
+
+      // Allow viewing feedback for 2.8 seconds, then progress to next question
+      setTimeout(() => {
+        feedbackModal.classList.add('opacity-0', 'scale-95', 'pointer-events-none');
+        feedbackModal.classList.remove('opacity-100', 'scale-100');
+        currentQuestionIndex++;
+        loadQuestion(currentQuestionIndex);
+      }, 2800);
+    }
+
+    // End game and stop music
+    function finishGame() {
+      isQuestionActive = false;
+      clearInterval(timerInterval);
+      soundEngine.stopBGM(); // Requirement: Nhạc dừng lại khi trò chơi kết thúc
+      
+      finalScoreEl.innerText = score;
+      if (score === 5) {
+        finalFeedbackTextEl.innerText = "Xuất sắc tuyệt đối! Bạn là một bậc thầy về Bảng tuần hoàn Mendeleev! 🌟";
+        triggerGoldenStarsExplosion();
+      } else if (score >= 3) {
+        finalFeedbackTextEl.innerText = "Rất tốt! Bạn nắm khá vững các quy luật cơ bản của bảng tuần hoàn! 👏";
+      } else {
+        finalFeedbackTextEl.innerText = "Cố gắng lên nhé! Hãy ôn lại kiến thức về chu kì và nhóm để đạt điểm cao hơn. 💪";
+      }
+
+      gameOverScreen.classList.remove('hidden');
+    }
+  </script>
+
+  <script>
+    // Start game button
+    startGameBtn.addEventListener('click', async () => {
+      startScreen.classList.add('hidden');
+      soundEngine.startBGM();
+      audioIcon.innerText = "🔊";
+      audioText.innerText = "Tắt Nhạc";
+
+      if (!faceMeshLoaded) {
+        await initFaceMesh();
+      }
+
+      currentQuestionIndex = 0;
+      score = 0;
+      scoreTextEl.innerText = '0';
+      loadQuestion(0);
+    });
+
+    // Restart game button
+    restartGameBtn.addEventListener('click', () => {
+      gameOverScreen.classList.add('hidden');
+      soundEngine.startBGM();
+      currentQuestionIndex = 0;
+      score = 0;
+      scoreTextEl.innerText = '0';
+      loadQuestion(0);
+    });
+
+    // Toggle background music
+    toggleAudioBtn.addEventListener('click', () => {
+      if (soundEngine.bgmPlaying) {
+        soundEngine.stopBGM();
+        audioIcon.innerText = "🔈";
+        audioText.innerText = "Bật Nhạc";
+      } else {
+        soundEngine.startBGM();
+        audioIcon.innerText = "🔊";
+        audioText.innerText = "Tắt Nhạc";
+      }
+    });
+
+    // Card click fallback (also enables touch accessibility)
+    optionCardA.addEventListener('click', () => {
+      if (isQuestionActive && !isLockedIn) {
+        confirmSelection('A');
+      }
+    });
+
+    optionCardB.addEventListener('click', () => {
+      if (isQuestionActive && !isLockedIn) {
+        confirmSelection('B');
+      }
+    });
+
+    // Instructions modal popup
+    document.getElementById('helpBtn').addEventListener('click', () => {
+      startScreen.classList.remove('hidden');
+    });
+
+    // Pre-initialize camera on initial page load
+    window.addEventListener('load', () => {
+      initFaceMesh();
+    });
+  </script>
+</body>
+</html>
